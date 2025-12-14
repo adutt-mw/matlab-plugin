@@ -22,4 +22,4 @@ jobs:
       - name: Run Verifier Script
         run: |
           Write-Host "Starting verification..."
-          python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job test-job --log-string "Hello from Jenkins Verifier"
+          python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job "test_project" log-string "Finished: SUCCESS"
