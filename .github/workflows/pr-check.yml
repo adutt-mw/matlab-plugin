@@ -1,0 +1,157 @@
+name: Jenkins Plugin Verification
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  verify-plugin:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build Plugin
+        run: mvn package -DskipTests
+
+      - name: Setup Jenkins Environment
+        run: |
+          # Create a fresh JENKINS_HOME
+          # We use a subdirectory in the workspace to avoid messing with global state
+          export JENKINS_HOME=$(pwd)/jenkins_home
+          rm -rf $JENKINS_HOME || true
+          mkdir -p $JENKINS_HOME/plugins
+          
+          # Copy the built plugin
+          echo "Installing built plugin..."
+          cp target/matlab.hpi $JENKINS_HOME/plugins/matlab.jpi
+          
+          # Download Jenkins WAR (LTS)
+          # Using a fixed version for stability
+          if [ ! -f jenkins.war ]; then
+            echo "Downloading Jenkins WAR..."
+            curl -L -o jenkins.war https://get.jenkins.io/war-stable/2.479.3/jenkins.war
+          fi
+
+      - name: Start Jenkins
+        run: |
+          export JENKINS_HOME=$(pwd)/jenkins_home
+          
+          # Start Jenkins in background with a specific port
+          # We use --httpPort=8080. If 8080 is busy, this will fail.
+          # We enable a simple security realm for automation
+          echo "Starting Jenkins..."
+          nohup java -jar jenkins.war --httpPort=8080 --argumentsRealm.passwd.admin=admin --argumentsRealm.roles.admin=admin > jenkins.log 2>&1 &
+          echo $! > jenkins.pid
+          
+          # Wait for Jenkins to start
+          echo "Waiting for Jenkins to become ready..."
+          count=0
+          while ! curl -s http://localhost:8080/login > /dev/null; do
+            echo "Waiting..."
+            sleep 5
+            count=$((count+1))
+            if [ $count -gt 60 ]; then
+              echo "Jenkins failed to start within 5 minutes."
+              echo "--- JENKINS LOG ---"
+              cat jenkins.log
+              exit 1
+            fi
+          done
+          echo "Jenkins is up and running."
+
+      - name: Install Dependencies
+        run: |
+          # Download CLI
+          curl -s -O http://localhost:8080/jnlpJars/jenkins-cli.jar
+          
+          # Helper function
+          jcli() {
+            java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin "$@"
+          }
+          
+          # Install necessary plugins
+          # 'matlab' plugin needs: matrix-project, workflow-step-api, etc.
+          # We install 'workflow-aggregator' for Pipeline support and 'matrix-project'.
+          echo "Installing dependencies..."
+          jcli install-plugin \
+            workflow-aggregator \
+            matrix-project \
+            junit \
+            structs \
+            -deploy
+            
+          # Restart to load plugins
+          echo "Restarting Jenkins..."
+          jcli safe-restart
+          
+          # Wait for restart
+          sleep 10
+          count=0
+          while ! curl -s http://localhost:8080/login > /dev/null; do
+            sleep 5
+            count=$((count+1))
+             if [ $count -gt 60 ]; then echo "Timeout waiting for restart"; exit 1; fi
+          done
+          echo "Jenkins restarted."
+
+      - name: Create Test Job
+        run: |
+          echo "Creating test job..."
+          cat <<EOF > job_config.xml
+          <?xml version='1.1' encoding='UTF-8'?>
+          <flow-definition plugin="workflow-job">
+            <description>Test MATLAB Plugin</description>
+            <keepDependencies>false</keepDependencies>
+            <properties/>
+            <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps">
+              <script>
+                pipeline {
+                    agent any
+                    stages {
+                        stage('Test') {
+                            steps {
+                                runMatlabCommand command: 'disp("Hello from Jenkins Verifier")'
+                            }
+                        }
+                    }
+                }
+              </script>
+              <sandbox>true</sandbox>
+            </definition>
+            <triggers/>
+            <disabled>false</disabled>
+          </flow-definition>
+          EOF
+          
+          java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin create-job test-job < job_config.xml
+
+      - name: Run Verifier
+        run: |
+          echo "Running verifier script..."
+          pip install python-jenkins
+          python jenkins_verifier.py \
+            --url http://localhost:8080 \
+            --user admin \
+            --token admin \
+            --job test-job \
+            --log-string "Hello from Jenkins Verifier"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "Cleaning up..."
+          if [ -f jenkins.pid ]; then
+            kill $(cat jenkins.pid) || true
+          fi
+          # Optional: remove jenkins_home to save space, or keep it for debugging
+          rm -rf jenkins_home jenkins.war jenkins-cli.jar jenkins.log job_config.xml jenkins.pid
