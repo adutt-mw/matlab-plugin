@@ -3,6 +3,12 @@ on:
   pull_request:
     branches: [ master ]
 
+env:
+  JENKINS_URL: "http://localhost:8080"
+  JENKINS_USER: "adutt"
+  # Note: It is recommended to store this token in GitHub Secrets (e.g., secrets.JENKINS_TOKEN)
+  JENKINS_TOKEN: "11e2b49cb4eee3c31ff204ad80409249b1"
+
 jobs:
   verify-plugin:
     runs-on: self-hosted
@@ -23,114 +29,70 @@ jobs:
       - name: Build Plugin
         run: mvn package -DskipTests
 
-      - name: Setup Jenkins Environment
+      - name: Deploy Plugin to Local Jenkins
         run: |
-          # Create a fresh JENKINS_HOME
-          $env:JENKINS_HOME = "$PWD\jenkins_home"
-          if (Test-Path $env:JENKINS_HOME) { Remove-Item -Recurse -Force $env:JENKINS_HOME }
-          New-Item -ItemType Directory -Force "$env:JENKINS_HOME\plugins" | Out-Null
-          New-Item -ItemType Directory -Force "$env:JENKINS_HOME\init.groovy.d" | Out-Null
+          Write-Host "Uploading plugin to $env:JENKINS_URL..."
+          $pluginPath = "target\matlab.hpi"
           
-          # Create init script for security
-          $initScript = @"
-          import jenkins.model.*
-          import hudson.security.*
+          # Use curl for upload as Invoke-WebRequest can be tricky with multipart/form-data on older PowerShell
+          # Assuming curl is available (Git Bash or Windows curl)
+          # If not, we can use a .NET script block
           
-          def instance = Jenkins.getInstance()
-          def hudsonRealm = new HudsonPrivateSecurityRealm(false)
-          hudsonRealm.createAccount('admin', 'admin')
-          instance.setSecurityRealm(hudsonRealm)
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($env:JENKINS_USER):$($env:JENKINS_TOKEN)"))
           
-          def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
-          strategy.setAllowAnonymousRead(true)
-          instance.setAuthorizationStrategy(strategy)
-          instance.save()
-          "@
-          Set-Content -Path "$env:JENKINS_HOME\init.groovy.d\basic-security.groovy" -Value $initScript -Encoding ASCII
-          
-          # Copy the built plugin
-          Write-Host "Installing built plugin..."
-          Copy-Item "target\matlab.hpi" "$env:JENKINS_HOME\plugins\matlab.jpi"
-          
-          # Download Jenkins WAR (LTS)
-          if (-not (Test-Path "jenkins.war")) {
-            Write-Host "Downloading Jenkins WAR..."
-            Invoke-WebRequest -Uri "https://get.jenkins.io/war-stable/2.479.3/jenkins.war" -OutFile "jenkins.war"
+          try {
+             # Upload the plugin
+             # We use curl.exe if available, otherwise we might need a more complex PowerShell script
+             # Windows 10+ has curl.exe
+             
+             curl.exe -v -u "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)" -F "file=@$pluginPath" "$env:JENKINS_URL/pluginManager/uploadPlugin"
+             
+             if ($LASTEXITCODE -ne 0) {
+                Write-Error "Failed to upload plugin."
+                exit 1
+             }
+             Write-Host "Plugin uploaded successfully."
+          } catch {
+             Write-Error "Error during upload: $_"
+             exit 1
           }
 
-      - name: Start Jenkins
+      - name: Restart Jenkins
         run: |
-          $env:JENKINS_HOME = "$PWD\jenkins_home"
-          
-          # Start Jenkins in background
-          Write-Host "Starting Jenkins..."
-          # Removed argumentsRealm args as we use init.groovy now
-          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8081" -PassThru
-          $jenkinsProcess.Id | Out-File "jenkins.pid"
-          
-          # Wait for Jenkins to start
-          Write-Host "Waiting for Jenkins to become ready..."
-          $count = 0
-          do {
-            Start-Sleep -Seconds 5
-            $count++
-            try {
-              $response = Invoke-WebRequest -Uri "http://localhost:8081/login" -UseBasicParsing -ErrorAction Stop
-              if ($response.StatusCode -eq 200) { break }
-            } catch {}
-            
-            if ($count -gt 60) {
-              Write-Error "Jenkins failed to start within 5 minutes."
-              exit 1
-            }
-          } while ($true)
-          Write-Host "Jenkins is up and running."
-
-      - name: Install Dependencies
-        run: |
-          # Download CLI
-          Invoke-WebRequest -Uri "http://localhost:8081/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
-          
-          # Install necessary plugins
-          Write-Host "Installing dependencies..."
-          # Added -webSocket for better connectivity
-          java -jar jenkins-cli.jar -s http://localhost:8081/ -webSocket -auth admin:admin install-plugin workflow-aggregator matrix-project junit structs -deploy
-            
-          # Restart to load plugins
-          Write-Host "Restarting Jenkins manually..."
-          # Stop the current process
-          if (Test-Path "jenkins.pid") {
-            $pidVal = Get-Content "jenkins.pid"
-            Stop-Process -Id $pidVal -Force -ErrorAction SilentlyContinue
-            Remove-Item "jenkins.pid"
+          Write-Host "Triggering Safe Restart..."
+          try {
+             $response = Invoke-WebRequest -Uri "$env:JENKINS_URL/safeRestart" -Method Post -Headers @{Authorization=("Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($env:JENKINS_USER):$($env:JENKINS_TOKEN)")))} -UseBasicParsing
+             Write-Host "Restart request sent."
+          } catch {
+             Write-Host "Restart request might have failed or connection dropped (expected during restart): $_"
           }
           
-          # Start Jenkins again
-          Write-Host "Starting Jenkins again..."
-          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8081" -PassThru
-          $jenkinsProcess.Id | Out-File "jenkins.pid"
-          
-          # Wait for restart
+          # Wait for Jenkins to come back up
+          Write-Host "Waiting for Jenkins to restart..."
           Start-Sleep -Seconds 10
           $count = 0
           do {
             Start-Sleep -Seconds 5
             $count++
             try {
-              $response = Invoke-WebRequest -Uri "http://localhost:8081/login" -UseBasicParsing -ErrorAction Stop
+              $response = Invoke-WebRequest -Uri "$env:JENKINS_URL/login" -UseBasicParsing -ErrorAction Stop
               if ($response.StatusCode -eq 200) { break }
             } catch {}
             
             if ($count -gt 60) {
-              Write-Error "Timeout waiting for restart"
+              Write-Error "Timeout waiting for Jenkins to restart."
               exit 1
             }
           } while ($true)
-          Write-Host "Jenkins restarted."
+          Write-Host "Jenkins is back up."
 
-      - name: Create Test Job
+      - name: Create/Update Test Job
         run: |
-          Write-Host "Creating test job..."
+          Write-Host "Configuring test job..."
+          
+          # Download CLI
+          Invoke-WebRequest -Uri "$env:JENKINS_URL/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
+          
           $config = @"
           <?xml version='1.1' encoding='UTF-8'?>
           <flow-definition plugin="workflow-job">
@@ -159,23 +121,20 @@ jobs:
           
           Set-Content -Path "job_config.xml" -Value $config
           
-          # Use cmd /c to handle input redirection properly for java -jar
-          # Added -webSocket
-          cmd /c "java -jar jenkins-cli.jar -s http://localhost:8081/ -webSocket -auth admin:admin create-job test-job < job_config.xml"
+          # Check if job exists, if so update, else create
+          # simpler to just create-job with overwrite logic or update-job
+          # create-job fails if exists. update-job fails if not exists.
+          
+          $jobName = "test-job"
+          
+          # Try create
+          cmd /c "java -jar jenkins-cli.jar -s $env:JENKINS_URL/ -webSocket -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN create-job $jobName < job_config.xml" 2>&1 | Out-Null
+          
+          # Try update (if create failed)
+          cmd /c "java -jar jenkins-cli.jar -s $env:JENKINS_URL/ -webSocket -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN update-job $jobName < job_config.xml"
 
       - name: Run Verifier
         run: |
           Write-Host "Running verifier script..."
           pip install python-jenkins
-          python jenkins_verifier.py --url http://localhost:8081 --user admin --token admin --job test-job --log-string "Hello from Jenkins Verifier"
-
-      - name: Cleanup
-        if: always()
-        run: |
-          Write-Host "Cleaning up..."
-          if (Test-Path "jenkins.pid") {
-            $pidVal = Get-Content "jenkins.pid"
-            Stop-Process -Id $pidVal -Force -ErrorAction SilentlyContinue
-          }
-          # Optional cleanup
-          Remove-Item -Recurse -Force jenkins_home, jenkins.war, jenkins-cli.jar, job_config.xml, jenkins.pid -ErrorAction SilentlyContinue
+          python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job test-job --log-string "Hello from Jenkins Verifier"
