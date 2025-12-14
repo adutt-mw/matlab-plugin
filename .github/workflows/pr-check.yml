@@ -29,6 +29,24 @@ jobs:
           $env:JENKINS_HOME = "$PWD\jenkins_home"
           if (Test-Path $env:JENKINS_HOME) { Remove-Item -Recurse -Force $env:JENKINS_HOME }
           New-Item -ItemType Directory -Force "$env:JENKINS_HOME\plugins" | Out-Null
+          New-Item -ItemType Directory -Force "$env:JENKINS_HOME\init.groovy.d" | Out-Null
+          
+          # Create init script for security
+          $initScript = @"
+          import jenkins.model.*
+          import hudson.security.*
+          
+          def instance = Jenkins.getInstance()
+          def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+          hudsonRealm.createAccount('admin', 'admin')
+          instance.setSecurityRealm(hudsonRealm)
+          
+          def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+          strategy.setAllowAnonymousRead(true)
+          instance.setAuthorizationStrategy(strategy)
+          instance.save()
+          "@
+          Set-Content -Path "$env:JENKINS_HOME\init.groovy.d\basic-security.groovy" -Value $initScript -Encoding ASCII
           
           # Copy the built plugin
           Write-Host "Installing built plugin..."
@@ -46,7 +64,8 @@ jobs:
           
           # Start Jenkins in background
           Write-Host "Starting Jenkins..."
-          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8080", "--argumentsRealm.passwd.admin=admin", "--argumentsRealm.roles.admin=admin" -PassThru
+          # Removed argumentsRealm args as we use init.groovy now
+          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8080" -PassThru
           $jenkinsProcess.Id | Out-File "jenkins.pid"
           
           # Wait for Jenkins to start
@@ -74,11 +93,12 @@ jobs:
           
           # Install necessary plugins
           Write-Host "Installing dependencies..."
-          java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin install-plugin workflow-aggregator matrix-project junit structs -deploy
+          # Added -webSocket for better connectivity
+          java -jar jenkins-cli.jar -s http://localhost:8080/ -webSocket -auth admin:admin install-plugin workflow-aggregator matrix-project junit structs -deploy
             
           # Restart to load plugins
           Write-Host "Restarting Jenkins..."
-          java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin safe-restart
+          java -jar jenkins-cli.jar -s http://localhost:8080/ -webSocket -auth admin:admin safe-restart
           
           # Wait for restart
           Start-Sleep -Seconds 10
@@ -130,7 +150,8 @@ jobs:
           Set-Content -Path "job_config.xml" -Value $config
           
           # Use cmd /c to handle input redirection properly for java -jar
-          cmd /c "java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin create-job test-job < job_config.xml"
+          # Added -webSocket
+          cmd /c "java -jar jenkins-cli.jar -s http://localhost:8080/ -webSocket -auth admin:admin create-job test-job < job_config.xml"
 
       - name: Run Verifier
         run: |
