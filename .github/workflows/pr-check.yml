@@ -6,7 +6,7 @@ on:
 env:
   JENKINS_URL: "http://localhost:8080"
   JENKINS_USER: "adutt"
-  JENKINS_TOKEN: "**hidden**" 
+  JENKINS_TOKEN: "11e2b49cb4eee3c31ff204ad80409249b1" 
 
 jobs:
   verify-plugin:
