@@ -8,7 +8,7 @@ jobs:
     runs-on: self-hosted
     defaults:
       run:
-        shell: bash
+        shell: powershell
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,88 +26,82 @@ jobs:
       - name: Setup Jenkins Environment
         run: |
           # Create a fresh JENKINS_HOME
-          # We use a subdirectory in the workspace to avoid messing with global state
-          export JENKINS_HOME=$(pwd)/jenkins_home
-          rm -rf $JENKINS_HOME || true
-          mkdir -p $JENKINS_HOME/plugins
+          $env:JENKINS_HOME = "$PWD\jenkins_home"
+          if (Test-Path $env:JENKINS_HOME) { Remove-Item -Recurse -Force $env:JENKINS_HOME }
+          New-Item -ItemType Directory -Force "$env:JENKINS_HOME\plugins" | Out-Null
           
           # Copy the built plugin
-          echo "Installing built plugin..."
-          cp target/matlab.hpi $JENKINS_HOME/plugins/matlab.jpi
+          Write-Host "Installing built plugin..."
+          Copy-Item "target\matlab.hpi" "$env:JENKINS_HOME\plugins\matlab.jpi"
           
           # Download Jenkins WAR (LTS)
-          # Using a fixed version for stability
-          if [ ! -f jenkins.war ]; then
-            echo "Downloading Jenkins WAR..."
-            curl -L -o jenkins.war https://get.jenkins.io/war-stable/2.479.3/jenkins.war
-          fi
+          if (-not (Test-Path "jenkins.war")) {
+            Write-Host "Downloading Jenkins WAR..."
+            Invoke-WebRequest -Uri "https://get.jenkins.io/war-stable/2.479.3/jenkins.war" -OutFile "jenkins.war"
+          }
 
       - name: Start Jenkins
         run: |
-          export JENKINS_HOME=$(pwd)/jenkins_home
+          $env:JENKINS_HOME = "$PWD\jenkins_home"
           
-          # Start Jenkins in background with a specific port
-          # We use --httpPort=8080. If 8080 is busy, this will fail.
-          # We enable a simple security realm for automation
-          echo "Starting Jenkins..."
-          nohup java -jar jenkins.war --httpPort=8080 --argumentsRealm.passwd.admin=admin --argumentsRealm.roles.admin=admin > jenkins.log 2>&1 &
-          echo $! > jenkins.pid
+          # Start Jenkins in background
+          Write-Host "Starting Jenkins..."
+          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8080", "--argumentsRealm.passwd.admin=admin", "--argumentsRealm.roles.admin=admin" -PassThru
+          $jenkinsProcess.Id | Out-File "jenkins.pid"
           
           # Wait for Jenkins to start
-          echo "Waiting for Jenkins to become ready..."
-          count=0
-          while ! curl -s http://localhost:8080/login > /dev/null; do
-            echo "Waiting..."
-            sleep 5
-            count=$((count+1))
-            if [ $count -gt 60 ]; then
-              echo "Jenkins failed to start within 5 minutes."
-              echo "--- JENKINS LOG ---"
-              cat jenkins.log
+          Write-Host "Waiting for Jenkins to become ready..."
+          $count = 0
+          do {
+            Start-Sleep -Seconds 5
+            $count++
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:8080/login" -UseBasicParsing -ErrorAction Stop
+              if ($response.StatusCode -eq 200) { break }
+            } catch {}
+            
+            if ($count -gt 60) {
+              Write-Error "Jenkins failed to start within 5 minutes."
               exit 1
-            fi
-          done
-          echo "Jenkins is up and running."
+            }
+          } while ($true)
+          Write-Host "Jenkins is up and running."
 
       - name: Install Dependencies
         run: |
           # Download CLI
-          curl -s -O http://localhost:8080/jnlpJars/jenkins-cli.jar
-          
-          # Helper function
-          jcli() {
-            java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin "$@"
-          }
+          Invoke-WebRequest -Uri "http://localhost:8080/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
           
           # Install necessary plugins
-          # 'matlab' plugin needs: matrix-project, workflow-step-api, etc.
-          # We install 'workflow-aggregator' for Pipeline support and 'matrix-project'.
-          echo "Installing dependencies..."
-          jcli install-plugin \
-            workflow-aggregator \
-            matrix-project \
-            junit \
-            structs \
-            -deploy
+          Write-Host "Installing dependencies..."
+          java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin install-plugin workflow-aggregator matrix-project junit structs -deploy
             
           # Restart to load plugins
-          echo "Restarting Jenkins..."
-          jcli safe-restart
+          Write-Host "Restarting Jenkins..."
+          java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin safe-restart
           
           # Wait for restart
-          sleep 10
-          count=0
-          while ! curl -s http://localhost:8080/login > /dev/null; do
-            sleep 5
-            count=$((count+1))
-             if [ $count -gt 60 ]; then echo "Timeout waiting for restart"; exit 1; fi
-          done
-          echo "Jenkins restarted."
+          Start-Sleep -Seconds 10
+          $count = 0
+          do {
+            Start-Sleep -Seconds 5
+            $count++
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:8080/login" -UseBasicParsing -ErrorAction Stop
+              if ($response.StatusCode -eq 200) { break }
+            } catch {}
+            
+            if ($count -gt 60) {
+              Write-Error "Timeout waiting for restart"
+              exit 1
+            }
+          } while ($true)
+          Write-Host "Jenkins restarted."
 
       - name: Create Test Job
         run: |
-          echo "Creating test job..."
-          cat <<EOF > job_config.xml
+          Write-Host "Creating test job..."
+          $config = @"
           <?xml version='1.1' encoding='UTF-8'?>
           <flow-definition plugin="workflow-job">
             <description>Test MATLAB Plugin</description>
@@ -131,27 +125,26 @@ jobs:
             <triggers/>
             <disabled>false</disabled>
           </flow-definition>
-          EOF
+          "@
           
-          java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin create-job test-job < job_config.xml
+          Set-Content -Path "job_config.xml" -Value $config
+          
+          # Use cmd /c to handle input redirection properly for java -jar
+          cmd /c "java -jar jenkins-cli.jar -s http://localhost:8080/ -auth admin:admin create-job test-job < job_config.xml"
 
       - name: Run Verifier
         run: |
-          echo "Running verifier script..."
+          Write-Host "Running verifier script..."
           pip install python-jenkins
-          python jenkins_verifier.py \
-            --url http://localhost:8080 \
-            --user admin \
-            --token admin \
-            --job test-job \
-            --log-string "Hello from Jenkins Verifier"
+          python jenkins_verifier.py --url http://localhost:8080 --user admin --token admin --job test-job --log-string "Hello from Jenkins Verifier"
 
       - name: Cleanup
         if: always()
         run: |
-          echo "Cleaning up..."
-          if [ -f jenkins.pid ]; then
-            kill $(cat jenkins.pid) || true
-          fi
-          # Optional: remove jenkins_home to save space, or keep it for debugging
-          rm -rf jenkins_home jenkins.war jenkins-cli.jar jenkins.log job_config.xml jenkins.pid
+          Write-Host "Cleaning up..."
+          if (Test-Path "jenkins.pid") {
+            $pidVal = Get-Content "jenkins.pid"
+            Stop-Process -Id $pidVal -Force -ErrorAction SilentlyContinue
+          }
+          # Optional cleanup
+          Remove-Item -Recurse -Force jenkins_home, jenkins.war, jenkins-cli.jar, job_config.xml, jenkins.pid -ErrorAction SilentlyContinue
