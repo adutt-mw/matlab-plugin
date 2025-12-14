@@ -65,7 +65,7 @@ jobs:
           # Start Jenkins in background
           Write-Host "Starting Jenkins..."
           # Removed argumentsRealm args as we use init.groovy now
-          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8080" -PassThru
+          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8081" -PassThru
           $jenkinsProcess.Id | Out-File "jenkins.pid"
           
           # Wait for Jenkins to start
@@ -75,7 +75,7 @@ jobs:
             Start-Sleep -Seconds 5
             $count++
             try {
-              $response = Invoke-WebRequest -Uri "http://localhost:8080/login" -UseBasicParsing -ErrorAction Stop
+              $response = Invoke-WebRequest -Uri "http://localhost:8081/login" -UseBasicParsing -ErrorAction Stop
               if ($response.StatusCode -eq 200) { break }
             } catch {}
             
@@ -89,16 +89,16 @@ jobs:
       - name: Install Dependencies
         run: |
           # Download CLI
-          Invoke-WebRequest -Uri "http://localhost:8080/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
+          Invoke-WebRequest -Uri "http://localhost:8081/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
           
           # Install necessary plugins
           Write-Host "Installing dependencies..."
           # Added -webSocket for better connectivity
-          java -jar jenkins-cli.jar -s http://localhost:8080/ -webSocket -auth admin:admin install-plugin workflow-aggregator matrix-project junit structs -deploy
+          java -jar jenkins-cli.jar -s http://localhost:8081/ -webSocket -auth admin:admin install-plugin workflow-aggregator matrix-project junit structs -deploy
             
           # Restart to load plugins
           Write-Host "Restarting Jenkins..."
-          java -jar jenkins-cli.jar -s http://localhost:8080/ -webSocket -auth admin:admin safe-restart
+          java -jar jenkins-cli.jar -s http://localhost:8081/ -webSocket -auth admin:admin safe-restart
           
           # Wait for restart
           Start-Sleep -Seconds 10
@@ -107,7 +107,7 @@ jobs:
             Start-Sleep -Seconds 5
             $count++
             try {
-              $response = Invoke-WebRequest -Uri "http://localhost:8080/login" -UseBasicParsing -ErrorAction Stop
+              $response = Invoke-WebRequest -Uri "http://localhost:8081/login" -UseBasicParsing -ErrorAction Stop
               if ($response.StatusCode -eq 200) { break }
             } catch {}
             
@@ -151,13 +151,13 @@ jobs:
           
           # Use cmd /c to handle input redirection properly for java -jar
           # Added -webSocket
-          cmd /c "java -jar jenkins-cli.jar -s http://localhost:8080/ -webSocket -auth admin:admin create-job test-job < job_config.xml"
+          cmd /c "java -jar jenkins-cli.jar -s http://localhost:8081/ -webSocket -auth admin:admin create-job test-job < job_config.xml"
 
       - name: Run Verifier
         run: |
           Write-Host "Running verifier script..."
           pip install python-jenkins
-          python jenkins_verifier.py --url http://localhost:8080 --user admin --token admin --job test-job --log-string "Hello from Jenkins Verifier"
+          python jenkins_verifier.py --url http://localhost:8081 --user admin --token admin --job test-job --log-string "Hello from Jenkins Verifier"
 
       - name: Cleanup
         if: always()
