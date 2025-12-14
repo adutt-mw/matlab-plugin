@@ -6,7 +6,6 @@ on:
 env:
   JENKINS_URL: "http://localhost:8080"
   JENKINS_USER: "adutt"
-  # ideally store this in GitHub Secrets
   JENKINS_TOKEN: "11e2b49cb4eee3c31ff204ad80409249b1" 
 
 jobs:
@@ -21,5 +20,4 @@ jobs:
 
       - name: Run Verifier Script
         run: |
-          Write-Host "Starting verification..."
-          python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job "test_project" log-string "Finished: SUCCESS"
+          python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job "test_project" --log-string "Finished: SUCCESS"
