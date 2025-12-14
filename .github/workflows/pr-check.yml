@@ -97,8 +97,18 @@ jobs:
           java -jar jenkins-cli.jar -s http://localhost:8081/ -webSocket -auth admin:admin install-plugin workflow-aggregator matrix-project junit structs -deploy
             
           # Restart to load plugins
-          Write-Host "Restarting Jenkins..."
-          java -jar jenkins-cli.jar -s http://localhost:8081/ -webSocket -auth admin:admin safe-restart
+          Write-Host "Restarting Jenkins manually..."
+          # Stop the current process
+          if (Test-Path "jenkins.pid") {
+            $pidVal = Get-Content "jenkins.pid"
+            Stop-Process -Id $pidVal -Force -ErrorAction SilentlyContinue
+            Remove-Item "jenkins.pid"
+          }
+          
+          # Start Jenkins again
+          Write-Host "Starting Jenkins again..."
+          $jenkinsProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "jenkins.war", "--httpPort=8081" -PassThru
+          $jenkinsProcess.Id | Out-File "jenkins.pid"
           
           # Wait for restart
           Start-Sleep -Seconds 10
