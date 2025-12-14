@@ -6,8 +6,8 @@ on:
 env:
   JENKINS_URL: "http://localhost:8080"
   JENKINS_USER: "adutt"
-  # Note: It is recommended to store this token in GitHub Secrets (e.g., secrets.JENKINS_TOKEN)
-  JENKINS_TOKEN: "11e2b49cb4eee3c31ff204ad80409249b1"
+  # ideally store this in GitHub Secrets
+  JENKINS_TOKEN: "11e2b49cb4eee3c31ff204ad80409249b1" 
 
 jobs:
   verify-plugin:
@@ -16,125 +16,10 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Build Plugin
-        run: mvn package -DskipTests
-
-      - name: Deploy Plugin to Local Jenkins
+      - name: Run Verifier Script
         run: |
-          Write-Host "Uploading plugin to $env:JENKINS_URL..."
-          $pluginPath = "target\matlab.hpi"
-          
-          # Use curl for upload as Invoke-WebRequest can be tricky with multipart/form-data on older PowerShell
-          # Assuming curl is available (Git Bash or Windows curl)
-          # If not, we can use a .NET script block
-          
-          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($env:JENKINS_USER):$($env:JENKINS_TOKEN)"))
-          
-          try {
-             # Upload the plugin
-             # We use curl.exe if available, otherwise we might need a more complex PowerShell script
-             # Windows 10+ has curl.exe
-             
-             curl.exe -v -u "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)" -F "file=@$pluginPath" "$env:JENKINS_URL/pluginManager/uploadPlugin"
-             
-             if ($LASTEXITCODE -ne 0) {
-                Write-Error "Failed to upload plugin."
-                exit 1
-             }
-             Write-Host "Plugin uploaded successfully."
-          } catch {
-             Write-Error "Error during upload: $_"
-             exit 1
-          }
-
-      - name: Restart Jenkins
-        run: |
-          Write-Host "Triggering Safe Restart..."
-          try {
-             $response = Invoke-WebRequest -Uri "$env:JENKINS_URL/safeRestart" -Method Post -Headers @{Authorization=("Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($env:JENKINS_USER):$($env:JENKINS_TOKEN)")))} -UseBasicParsing
-             Write-Host "Restart request sent."
-          } catch {
-             Write-Host "Restart request might have failed or connection dropped (expected during restart): $_"
-          }
-          
-          # Wait for Jenkins to come back up
-          Write-Host "Waiting for Jenkins to restart..."
-          Start-Sleep -Seconds 10
-          $count = 0
-          do {
-            Start-Sleep -Seconds 5
-            $count++
-            try {
-              $response = Invoke-WebRequest -Uri "$env:JENKINS_URL/login" -UseBasicParsing -ErrorAction Stop
-              if ($response.StatusCode -eq 200) { break }
-            } catch {}
-            
-            if ($count -gt 60) {
-              Write-Error "Timeout waiting for Jenkins to restart."
-              exit 1
-            }
-          } while ($true)
-          Write-Host "Jenkins is back up."
-
-      - name: Create/Update Test Job
-        run: |
-          Write-Host "Configuring test job..."
-          
-          # Download CLI
-          Invoke-WebRequest -Uri "$env:JENKINS_URL/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
-          
-          $config = @"
-          <?xml version='1.1' encoding='UTF-8'?>
-          <flow-definition plugin="workflow-job">
-            <description>Test MATLAB Plugin</description>
-            <keepDependencies>false</keepDependencies>
-            <properties/>
-            <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps">
-              <script>
-                pipeline {
-                    agent any
-                    stages {
-                        stage('Test') {
-                            steps {
-                                runMatlabCommand command: 'disp("Hello from Jenkins Verifier")'
-                            }
-                        }
-                    }
-                }
-              </script>
-              <sandbox>true</sandbox>
-            </definition>
-            <triggers/>
-            <disabled>false</disabled>
-          </flow-definition>
-          "@
-          
-          Set-Content -Path "job_config.xml" -Value $config
-          
-          # Check if job exists, if so update, else create
-          # simpler to just create-job with overwrite logic or update-job
-          # create-job fails if exists. update-job fails if not exists.
-          
-          $jobName = "test-job"
-          
-          # Try create
-          cmd /c "java -jar jenkins-cli.jar -s $env:JENKINS_URL/ -webSocket -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN create-job $jobName < job_config.xml" 2>&1 | Out-Null
-          
-          # Try update (if create failed)
-          cmd /c "java -jar jenkins-cli.jar -s $env:JENKINS_URL/ -webSocket -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN update-job $jobName < job_config.xml"
-
-      - name: Run Verifier
-        run: |
-          Write-Host "Running verifier script..."
-          pip install python-jenkins
+          Write-Host "Starting verification..."
           python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job test-job --log-string "Hello from Jenkins Verifier"
