@@ -1,0 +1,78 @@
+name: Jenkins Plugin Verification
+on:
+  pull_request:
+    branches: [ master ]
+
+env:
+  JENKINS_URL: "http://localhost:8080"
+  JENKINS_USER: "adutt"
+  JENKINS_TOKEN: ${{ secrets.JENKINS_TOKEN }}
+
+jobs:
+  verify-plugin:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build Plugin
+        run: mvn package -DskipTests
+
+      - name: Deploy Plugin via CLI
+        run: |
+          Write-Host "Downloading Jenkins CLI..."
+          Invoke-WebRequest -Uri "$env:JENKINS_URL/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
+          
+          $absPath = Convert-Path "target\matlab.hpi"
+          $fileUri = "file:///$($absPath.Replace('\', '/'))"
+          
+          Write-Host "Installing plugin from: $fileUri"
+          
+          $installCmd = "java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN install-plugin $fileUri -deploy"
+          cmd /c $installCmd
+
+          Write-Host "Plugin staged. Ignoring RestartRequiredException and proceeding to restart step..."
+          exit 0
+
+      - name: Restart Jenkins
+        run: |
+          Write-Host "Triggering Safe Restart..."
+          try {
+             java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)" safe-restart
+          } catch {
+             Write-Host "Restart command sent."
+          }
+          
+          Write-Host "Waiting for Jenkins to restart..."
+          Start-Sleep -Seconds 10
+          $count = 0
+          do {
+            Start-Sleep -Seconds 5
+            $count++
+            try {
+              $response = Invoke-WebRequest -Uri "$env:JENKINS_URL/login" -UseBasicParsing -ErrorAction Stop
+              if ($response.StatusCode -eq 200) { break }
+            } catch {}
+            
+            if ($count -gt 60) {
+              Write-Error "Timeout waiting for Jenkins to restart."
+              exit 1
+            }
+          } while ($true)
+          Write-Host "Jenkins is back up."
+
+      - name: Run Verifier Script
+        run: |
+          pip install python-jenkins
+          Write-Host "Running verification..."
+          python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job "test_project" --log-string "Successfully created output.txt"
