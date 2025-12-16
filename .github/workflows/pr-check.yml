@@ -76,4 +76,8 @@ jobs:
         run: |
           pip install python-jenkins
           Write-Host "Running verification..."
-          python jenkins_verifier.py --url $env:JENKINS_URL --user $env:JENKINS_USER --token $env:JENKINS_TOKEN --job "test_project" --log-string "Successfully created output.txt"
+          python jenkins_verifier.py `
+            --url $env:JENKINS_URL `
+            --user $env:JENKINS_USER `
+            --token $env:JENKINS_TOKEN `
+            --job "test_project"
