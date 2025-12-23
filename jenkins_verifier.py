@@ -4,9 +4,9 @@ import argparse
 import sys
 
 TEST_CONFIG = {
-    "ARTIFACT_NAME": "output.txt",
-    "EXPECTED_CONTENT": "Build Verified",
-    "MATLAB_ROOT_LINUX": "/home/adutt/MATLAB/R2025a/bin"
+    "ARTIFACT_NAME": "junittestresults.xml",
+    "EXPECTED_CONTENT": "testAddition", 
+    "ARTIFACT_PATH": "matlabTestArtifacts/junittestresults.xml" 
 }
 
 
