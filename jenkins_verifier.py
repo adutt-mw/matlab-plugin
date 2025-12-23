@@ -52,8 +52,17 @@ def verify_artifact_exists(server, job_name, build_number, filename):
         build_info = server.get_build_info(job_name, build_number)
         artifacts = build_info.get('artifacts', [])
         
+        # DEBUG: Print everything we found
+        if not artifacts:
+            print("   -> [DEBUG] Jenkins reports 0 artifacts archived.")
+        else:
+            print(f"   -> [DEBUG] Found {len(artifacts)} artifact(s):")
+            for a in artifacts:
+                print(f"      - FileName: '{a['fileName']}' | RelativePath: '{a['relativePath']}'")
+
+        # Search Logic (Improved to check both simple name and path)
         for artifact in artifacts:
-            if artifact['fileName'] == filename:
+            if filename in artifact['fileName'] or filename in artifact['relativePath']:
                 print(f"   -> [PASS] Artifact '{filename}' was generated successfully.")
                 return artifact
         
