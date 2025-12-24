@@ -2,6 +2,7 @@ import jenkins
 import time
 import argparse
 import sys
+import requests
 
 TEST_CONFIG = {
     "ARTIFACT_NAME": "junittestresults.xml",
@@ -72,12 +73,23 @@ def verify_artifact_exists(server, job_name, build_number, filename):
         print(f"   -> [ERROR] Failed to fetch artifacts: {e}")
         return None
 
-def verify_artifact_content(server, job_name, build_number, artifact_path, expected_text):
+def verify_artifact_content(base_url, auth, job_name, build_number, artifact_path, expected_text):
     print(f"\n4. [TEST] Artifact Content Access Check")
     print(f"   -> Downloading artifact to verify content...")
+
+    base_url = base_url.rstrip('/')
+    
+    artifact_url = f"{base_url}/job/{job_name}/{build_number}/artifact/{artifact_path}"
+    print(f"   -> Fetching URL: {artifact_url}")
+
     try:
-        artifact_content = server.get_build_artifact(job_name, build_number, artifact_path)
-        text_content = artifact_content.decode('utf-8')
+        response = requests.get(artifact_url, auth=auth)
+        
+        if response.status_code != 200:
+            print(f"   -> [FAIL] HTTP Error {response.status_code}. Response: {response.text[:100]}")
+            return False
+            
+        text_content = response.text
         
         if expected_text in text_content:
             print(f"   -> Found expected text: '{expected_text}'")
@@ -85,30 +97,41 @@ def verify_artifact_content(server, job_name, build_number, artifact_path, expec
             return True
         else:
             print(f"   -> [FAIL] Text '{expected_text}' NOT found.")
-            print(f"   -> Actual Content: {text_content}")
+            print(f"   -> Actual Content Snippet: {text_content[:200]}...")
             return False
     except Exception as e:
-        print(f"   -> [ERROR] Could not read artifact content: {e}")
+        print(f"   -> [ERROR] Failed to download artifact: {e}")
         return False
 
 
 def main():
     parser = argparse.ArgumentParser(description="Jenkins Plugin Integration Test Suite")
-    parser.add_argument("--url", required=True, help="Jenkins Server URL")
-    parser.add_argument("--user", required=True, help="Jenkins User ID")
-    parser.add_argument("--token", required=True, help="Jenkins API Token")
-    parser.add_argument("--job", required=True, help="Job Name (e.g., test_project)")
+    parser.add_argument("--url", help="Jenkins Server URL")
+    parser.add_argument("--user", help="Jenkins User ID")
+    parser.add_argument("--token", help="Jenkins API Token")
+    parser.add_argument("--job", required=True, help="Job Name")
     
     args = parser.parse_args()
 
+    # Environment Variable Fallback
+    jenkins_url = args.url or os.environ.get('JENKINS_URL')
+    jenkins_user = args.user or os.environ.get('JENKINS_USER')
+    jenkins_token = args.token or os.environ.get('JENKINS_TOKEN')
+
+    if not all([jenkins_url, jenkins_user, jenkins_token]):
+        print("Error: Missing connection details (URL, User, or Token).")
+        sys.exit(1)
+
     try:
-        server = jenkins.Jenkins(args.url, username=args.user, password=args.token)
+        # Connect to Jenkins
+        server = jenkins.Jenkins(jenkins_url, username=jenkins_user, password=jenkins_token)
         user = server.get_whoami()
         print(f"Connected to Jenkins as {user['fullName']}")
         print("=========================================")
         print("STARTING SEQUENTIAL INTEGRATION TESTS")
         print("=========================================")
 
+        # 1. Trigger & Wait
         queue_id = trigger_build(server, args.job)
         build_number = get_build_number(server, queue_id)
         result = wait_for_completion(server, args.job, build_number)
@@ -119,15 +142,23 @@ def main():
         else:
             print(f"   -> [PASS] Basic Build Success")
 
-      
+        # 2. Check Artifact Existence
         artifact_obj = verify_artifact_exists(server, args.job, build_number, TEST_CONFIG["ARTIFACT_NAME"])
         
         if not artifact_obj:
             print("\n[CRITICAL FAIL] Artifact generation failed. Stopping tests.")
             sys.exit(1)
 
-    
-        content_ok = verify_artifact_content(server, args.job, build_number, artifact_obj['relativePath'], TEST_CONFIG["EXPECTED_CONTENT"])
+        # 3. Check Artifact Content (Updated Call)
+        # We pass raw URL and (user, token) tuple directly to the new function
+        content_ok = verify_artifact_content(
+            jenkins_url, 
+            (jenkins_user, jenkins_token), 
+            args.job, 
+            build_number, 
+            artifact_obj['relativePath'], 
+            TEST_CONFIG["EXPECTED_CONTENT"]
+        )
 
         if not content_ok:
             print("\n[CRITICAL FAIL] Artifact content is incorrect.")
