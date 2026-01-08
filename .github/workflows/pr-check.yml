@@ -27,7 +27,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Build Plugin
-        run: .\mvnw.cmd package -DskipTests
+        run: mvn package -DskipTests
 
       - name: Deploy Plugin via CLI
         run: |
