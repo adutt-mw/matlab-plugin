@@ -53,7 +53,6 @@ def verify_artifact_exists(server, job_name, build_number, filename):
         build_info = server.get_build_info(job_name, build_number)
         artifacts = build_info.get('artifacts', [])
         
-        # DEBUG: Print everything we found
         if not artifacts:
             print("   -> [DEBUG] Jenkins reports 0 artifacts archived.")
         else:
@@ -61,7 +60,6 @@ def verify_artifact_exists(server, job_name, build_number, filename):
             for a in artifacts:
                 print(f"      - FileName: '{a['fileName']}' | RelativePath: '{a['relativePath']}'")
 
-        # Search Logic (Improved to check both simple name and path)
         for artifact in artifacts:
             if filename in artifact['fileName'] or filename in artifact['relativePath']:
                 print(f"   -> [PASS] Artifact '{filename}' was generated successfully.")
@@ -113,7 +111,6 @@ def main():
     
     args = parser.parse_args()
 
-    # Environment Variable Fallback
     jenkins_url = args.url or os.environ.get('JENKINS_URL')
     jenkins_user = args.user or os.environ.get('JENKINS_USER')
     jenkins_token = args.token or os.environ.get('JENKINS_TOKEN')
@@ -123,7 +120,6 @@ def main():
         sys.exit(1)
 
     try:
-        # Connect to Jenkins
         server = jenkins.Jenkins(jenkins_url, username=jenkins_user, password=jenkins_token)
         user = server.get_whoami()
         print(f"Connected to Jenkins as {user['fullName']}")
@@ -131,7 +127,6 @@ def main():
         print("STARTING SEQUENTIAL INTEGRATION TESTS")
         print("=========================================")
 
-        # 1. Trigger & Wait
         queue_id = trigger_build(server, args.job)
         build_number = get_build_number(server, queue_id)
         result = wait_for_completion(server, args.job, build_number)
@@ -142,15 +137,12 @@ def main():
         else:
             print(f"   -> [PASS] Basic Build Success")
 
-        # 2. Check Artifact Existence
         artifact_obj = verify_artifact_exists(server, args.job, build_number, TEST_CONFIG["ARTIFACT_NAME"])
         
         if not artifact_obj:
             print("\n[CRITICAL FAIL] Artifact generation failed. Stopping tests.")
             sys.exit(1)
 
-        # 3. Check Artifact Content (Updated Call)
-        # We pass raw URL and (user, token) tuple directly to the new function
         content_ok = verify_artifact_content(
             jenkins_url, 
             (jenkins_user, jenkins_token), 
