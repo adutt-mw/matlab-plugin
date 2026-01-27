@@ -24,27 +24,27 @@ To follow the steps in this example:
 Create a new project and configure it by following these steps:
 1. In your Jenkins interface, select **New Item** on the left. A new page opens where you can choose the type of your project. Enter a project name, and then click **Freestyle project**. To confirm your choices, click **OK**.
 
-![create_project](https://github.com/user-attachments/assets/cedd846b-4460-43d7-9278-253c7ee7260e)
+![Project creation interface showing Freestyle project selected as the project type and myProject entered as the project name](https://github.com/user-attachments/assets/cedd846b-4460-43d7-9278-253c7ee7260e)
 
 2. On the project configuration page, in the **Source Code Management** section, specify the repository that hosts your tests.
 
-![source_control](https://github.com/user-attachments/assets/3b888ed9-b521-4c3c-a932-ad5f9de563c3)
+![Source Code Management section of the project configuration page with the Repository URL box populated with a GitHub repository URL and the Branch Specifier box specifying the main branch](https://github.com/user-attachments/assets/3b888ed9-b521-4c3c-a932-ad5f9de563c3)
 
 3. In the **Environment** section, select **Use MATLAB version** and specify the MATLAB version you want to use in the build. If your preferred MATLAB version is not listed under **Use MATLAB version**, enter the full path to its root folder in the **MATLAB root** box. 
 
-![environment](https://github.com/user-attachments/assets/00598e0c-468d-465b-b334-5c7ed750ee3f)
+![Environment section showing Use MATLAB version selected with Custom chosen from the drop‑down list, and the MATLAB root box populated with the absolute path to the R2024b MATLAB root folder](https://github.com/user-attachments/assets/00598e0c-468d-465b-b334-5c7ed750ee3f)
 
 4. In the **Build Steps** section, select **Add build step > Run MATLAB Tests**. Then, specify the artifacts to generate in the project workspace. In this example, the plugin generates test results in JUnit-style XML format and code coverage results in Cobertura XML format. Furthermore, to generate the coverage results, the plugin uses only the code in the `source` folder located in the root of the repository. For more information about the build steps provided by the plugin, see [Plugin Configuration Guide](../CONFIGDOC.md).
 
-![run_matlab_tests](https://github.com/user-attachments/assets/b6b7b811-d998-4fb9-bbf8-5de624bb5bd6)
+![Generate Test Artifacts and Generate Coverage Artifacts sections of the Run MATLAB Tests step with the JUnit‑style test results and Cobertura code coverage options selected](https://github.com/user-attachments/assets/b6b7b811-d998-4fb9-bbf8-5de624bb5bd6)
 
 5. In the **Post-build Actions** section, add the **Publish JUnit test result report** post-build action to publish the test results in JUnit-style XML format. Specify the path to the test report in the **Test report XMLs** box.
 
-![post_build_junit](https://github.com/user-attachments/assets/82b4c99a-59c3-41e4-946d-555fb9315f35)
+![Post‑build Actions section showing the Publish JUnit test result report action, with the Test report XMLs box populated with the JUnit‑style test results path specified in the Run MATLAB Tests step](https://github.com/user-attachments/assets/82b4c99a-59c3-41e4-946d-555fb9315f35)
 
 6. In the **Post-build Actions** section, add the **Record code coverage results** post-build action to publish the code coverage results in Cobertura XML format. Select `Cobertura Coverage Reports` from the **Coverage Parser** list and specify the path to the coverage report in the **Report File Pattern** box.
 
-![post_build_cobertura](https://github.com/user-attachments/assets/5af14bb9-f12e-4942-a3ad-957eec4a057b)
+![Record code coverage results post‑build action with Cobertura Coverage Reports selected from the Coverage Parser list and the Report File Pattern box populated with the Cobertura code coverage results path specified in the Run MATLAB Tests step](https://github.com/user-attachments/assets/5af14bb9-f12e-4942-a3ad-957eec4a057b)
 
 7. Click **Save** to save the project configuration settings. You can access and modify your settings at a later stage by selecting **Configure** in the project interface, which displays the project name at the upper-left corner of the page.
 
@@ -53,11 +53,11 @@ To build your freestyle project, select **Build Now** in the project interface. 
 
 Navigate to the project workspace by selecting **Workspace** in the project interface. The generated artifacts are in the `matlabTestArtifacts` folder of the workspace.
 
-![workspace](https://github.com/user-attachments/assets/1c1ff1f8-99b7-475f-8278-180ab0185833)
+![Project interface after selecting Workspace in the left navigation pane, showing links to the generated artifacts](https://github.com/user-attachments/assets/1c1ff1f8-99b7-475f-8278-180ab0185833)
 
 Select **Status** in the project interface. You can access the published artifacts by clicking the **Latest Test Result** and **Coverage Report** links. For example, click the **Latest Test Result** link to view the published JUnit-style test results. On the test results page, click the **(root)** link in the **All Tests** table. The table expands and lists information for each of the test classes within the Times Table App project.  
 
-![test_results](https://github.com/user-attachments/assets/51cc73aa-cf8b-455a-b210-7ecfbb772a72)
+![Test results page indicating that all tests passed, with the All Tests table showing information about the three test classes in the MATLAB project](https://github.com/user-attachments/assets/51cc73aa-cf8b-455a-b210-7ecfbb772a72)
 
 ## See Also
 * [Plugin Configuration Guide](../CONFIGDOC.md)<br/>
