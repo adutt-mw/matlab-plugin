@@ -1,19 +1,15 @@
-name: CI/CD Pipeline
-
+name: using mpm to install MATLAB
 on:
   push:
-    branches: [ master ]
   pull_request:
-    branches: [ master ]
 
 jobs:
-  unit-tests:
-    name: Unit Tests (Push Only)
-    if: ${{ github.event_name == 'push' }}  
+  run-tests-job:
     strategy:
-      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    name: Run System tests
+    if: ${{ github.event_name == 'push' }}
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
@@ -24,7 +20,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'maven'
+          cache: maven
 
       - name: Setup MATLAB
         id: setup-matlab
@@ -34,10 +30,10 @@ jobs:
         run: mvn --batch-mode verify
         env:
           MATLAB_ROOT: ${{ steps.setup-matlab.outputs.matlabroot }}
-          MLM_LICENSE_TOKEN: ${{ secrets.MLM_LICENSE_TOKEN }}
+          MLM_LICENSE_TOKEN:  ${{ secrets.MLM_LICENSE_TOKEN}}
 
-  system-verification:
-    name: System Verification
+  cross-platform-tests:
+    name: Cross Platform Tests
     if: ${{ github.event_name == 'pull_request' }}  
     runs-on: self-hosted
     defaults:
@@ -64,7 +60,7 @@ jobs:
       - name: Build Plugin
         run: mvn package -DskipTests
 
-      - name: Deploy Plugin via CLI
+      - name: Move Plugin to Machine
         run: |
           Write-Host "Downloading Jenkins CLI..."
           Invoke-WebRequest -Uri "$env:JENKINS_URL/jnlpJars/jenkins-cli.jar" -OutFile "jenkins-cli.jar"
@@ -77,10 +73,10 @@ jobs:
           $installCmd = "java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN install-plugin $fileUri -deploy"
           cmd /c $installCmd
 
-          Write-Host "Plugin staged. Ignoring RestartRequiredException and proceeding to restart step..."
+          Write-Host "Plugin staged."
           exit 0
 
-      - name: Restart Jenkins
+      - name: Restart Jenkins Server
         run: |
           Write-Host "Triggering Safe Restart..."
           try {
@@ -107,16 +103,19 @@ jobs:
           } while ($true)
           Write-Host "Jenkins is back up."
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.x'
 
-      - name: Run Verifier Script
+      - name: Install dependencies
         run: |
           pip install python-jenkins
+
+      - name: Run cross platform tests
+        run: |
           Write-Host "Running verification..."
-          python jenkins_verifier.py `
+          python src\test\cross-platform-tests\jenkins_verifier.py `
             --url $env:JENKINS_URL `
             --user $env:JENKINS_USER `
             --token $env:JENKINS_TOKEN `
