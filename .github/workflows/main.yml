@@ -1,7 +1,5 @@
 name: using mpm to install MATLAB
-on:
-  push:
-  pull_request:
+on: [push, pull_request]
 
 jobs:
   run-tests-job:
@@ -80,7 +78,7 @@ jobs:
         run: |
           Write-Host "Restarting Jenkins Server..."
           try {
-             java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)" safe-restart
+            java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)" restart
           } catch {
              Write-Host "Restart command sent."
           }
