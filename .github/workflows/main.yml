@@ -68,7 +68,7 @@ jobs:
           
           Write-Host "Installing plugin from: $fileUri"
           
-          $installCmd = "java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN install-plugin $fileUri -deploy"
+          $installCmd = "java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth $env:JENKINS_USER`:$env:JENKINS_TOKEN install-plugin $fileUri"
           cmd /c $installCmd
 
           Write-Host "Plugin staged."
