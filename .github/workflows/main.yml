@@ -78,7 +78,7 @@ jobs:
 
       - name: Restart Jenkins Server
         run: |
-          Write-Host "Triggering Safe Restart..."
+          Write-Host "Restarting Jenkins Server..."
           try {
              java -jar jenkins-cli.jar -s $env:JENKINS_URL -auth "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)" safe-restart
           } catch {
@@ -101,7 +101,7 @@ jobs:
               exit 1
             }
           } while ($true)
-          Write-Host "Jenkins is back up."
+          Write-Host "Jenkins Up."
 
       - name: Set up Python 3
         uses: actions/setup-python@v4
