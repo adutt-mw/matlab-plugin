@@ -41,7 +41,7 @@ jobs:
         shell: powershell
     env:
       JENKINS_URL: "http://localhost:8080"
-      JENKINS_USER: "guest"
+      JENKINS_USER: "adutt"
       JENKINS_TOKEN: ${{ secrets.JENKINS_TOKEN }}
 
     steps:
